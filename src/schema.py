@@ -11,6 +11,9 @@ not descriptive code content.
 
 SHEET_VOCAB = "MOTS"
 SHEET_KANJI = "Analyse clés kanjis"
+# This tab's name is unknown (not exposed by the public CSV endpoint used
+# for gid-based access), so it's identified by gid instead of by name.
+SHEET_KANA_GID = 496685825
 
 VOCAB_COLUMNS = [
     "Ordre",
@@ -39,7 +42,17 @@ KANJI_COLUMNS = [
     "Étymologie Historique",
 ]
 
+KANA_COLUMNS = [
+    "Groupe",
+    "Rōmaji",
+    "Hiragana",
+    "Katakana",
+    "Type",
+    "Note de prononciation",
+]
+
 SCHEMAS = {
     SHEET_VOCAB: VOCAB_COLUMNS,
     SHEET_KANJI: KANJI_COLUMNS,
+    SHEET_KANA_GID: KANA_COLUMNS,
 }

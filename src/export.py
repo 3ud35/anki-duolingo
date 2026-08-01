@@ -1,20 +1,23 @@
-"""Builds the Anki .apkg package from the ingested vocabulary / kanji / radical data.
+"""Builds the Anki .apkg package from the ingested vocabulary / kanji /
+radical / kana data.
 
-Three note types, each with a Recognition and a Production template (the
-classic reversed-card pattern), packaged into one importable file per
-language ("en" / "fr"):
+Note types, each with a Recognition and a Production template (the classic
+reversed-card pattern), packaged into one importable file per language
+("en" / "fr"):
 - Vocabulary: from the `MOTS` tab.
 - Kanji: from the `Analyse clés kanjis` tab, radical breakdown included as
   context on the card itself.
 - Radical: from the radicals isolated by src/radicals.py, as a standalone
   reference deck on top of that (cheap to keep since the data already
   exists in this shape - safe to ignore/suspend in Anki if unwanted).
+- Hiragana / Katakana: two separate decks sharing one note type, from the
+  kana tab identified by gid in src/schema.py (SHEET_KANA_GID).
 
-Categorical labels (part of speech, theme) are translated in code via
-src/translations.py. Free-form prose fields with no data in the other
-language (commentary, mnemonics, etymology, radical meanings) are left
-blank for whichever language lacks a real source column - see main.py's
-startup report for exactly what's missing.
+Categorical labels (part of speech, theme, kana type) are translated in
+code via src/translations.py. Free-form prose fields with no data in the
+other language (commentary, mnemonics, etymology, radical meanings,
+pronunciation notes) are left blank for whichever language lacks a real
+source column - see main.py's startup report for exactly what's missing.
 
 Model/deck IDs below are fixed random constants, one set per language:
 never regenerate them, since Anki uses them to recognize "the same"
@@ -30,28 +33,103 @@ spreadsheet columns are French - only src/schema.py's column names have to
 match the source data verbatim.
 """
 
+import datetime
 import html
 
 import genanki
 
 from src.translations import translate_label
 
+DECK_TITLES = {
+    "en": {
+        "root": "Japanese Duolingo",
+        "vocab": "Vocabulary",
+        "kanji": "Kanji",
+        "radical": "Radicals",
+        "hiragana": "Hiragana",
+        "katakana": "Katakana",
+    },
+    "fr": {
+        "root": "Japonais Duolingo",
+        "vocab": "Vocabulaire",
+        "kanji": "Kanji",
+        "radical": "Radicaux",
+        "hiragana": "Hiragana",
+        "katakana": "Katakana",
+    },
+}
+
+UNITS = {
+    "en": {
+        "vocab": "words",
+        "kanji": "kanji",
+        "radical": "radicals",
+        "hiragana": "characters",
+        "katakana": "characters",
+    },
+    "fr": {
+        "vocab": "mots",
+        "kanji": "kanjis",
+        "radical": "radicaux",
+        "hiragana": "caractères",
+        "katakana": "caractères",
+    },
+}
+
+GENERATED_ON = {"en": "Generated on", "fr": "Généré le"}
+
+GAP_NOTES = {
+    ("vocab", "en"): "Extra context (Composition/Commentaire) isn't available in English yet.",
+    ("vocab", "fr"): (
+        "Le sens n'est pas encore disponible en français : MOTS n'a pas de "
+        "colonne de traduction française."
+    ),
+    ("kanji", "en"): "Radical meanings, mnemonic and etymology aren't available in English yet.",
+    ("kanji", "fr"): "",
+    ("radical", "en"): "Meanings aren't available in English yet.",
+    ("radical", "fr"): "",
+    ("hiragana", "en"): "Pronunciation notes aren't available in English yet.",
+    ("hiragana", "fr"): "",
+    ("katakana", "en"): "Pronunciation notes aren't available in English yet.",
+    ("katakana", "fr"): "",
+}
+
+REIMPORT_NOTE = {
+    "en": (
+        "Re-import this file after updating the spreadsheet: matching cards "
+        "are updated in place and review history is kept. Rows removed from "
+        "the spreadsheet are not automatically deleted from Anki."
+    ),
+    "fr": (
+        "Réimporte ce fichier après avoir mis à jour la spreadsheet : les "
+        "cartes correspondantes sont mises à jour sur place, l'historique de "
+        "révision est conservé. Les lignes supprimées de la spreadsheet ne "
+        "sont pas automatiquement supprimées d'Anki."
+    ),
+}
+
 IDS = {
     "en": {
         "model_vocab": 2076060013,
         "model_kanji": 2134279807,
         "model_radical": 1814570334,
+        "model_kana": 1410245015,
         "deck_vocab": 1683549848,
         "deck_kanji": 1593559119,
         "deck_radical": 1538186432,
+        "deck_hiragana": 1562341696,
+        "deck_katakana": 1473306337,
     },
     "fr": {
         "model_vocab": 1479258928,
         "model_kanji": 2018506066,
         "model_radical": 1635955490,
+        "model_kana": 1693701752,
         "deck_vocab": 1406830556,
         "deck_kanji": 1511132156,
         "deck_radical": 1456001352,
+        "deck_hiragana": 1263595306,
+        "deck_katakana": 1651686562,
     },
 }
 
@@ -60,7 +138,6 @@ CSS = """
         text-align: center; color: #1a1a1a; background-color: #fafafa; }
 .term { font-size: 42px; font-weight: bold; }
 .kanji-big { font-size: 80px; font-weight: bold; }
-.reading { font-size: 20px; color: #666; margin-top: 6px; }
 .meaning { font-size: 24px; margin-top: 10px; }
 .badge { font-size: 14px; color: #888; margin-top: 8px; }
 .extra { font-size: 14px; color: #999; margin-top: 10px; }
@@ -88,7 +165,7 @@ def _vocab_model(language: str) -> genanki.Model:
         f"Vocabulary ({language.upper()})",
         fields=[
             {"name": "Expression"},
-            {"name": "Reading"},
+            {"name": "Romaji"},
             {"name": "Meaning"},
             {"name": "PartOfSpeech"},
             {"name": "Theme"},
@@ -98,10 +175,9 @@ def _vocab_model(language: str) -> genanki.Model:
             {
                 "name": "Recognition",
                 "qfmt": '<div class="term">{{Expression}}</div>',
-                "afmt": '<div class="term">{{furigana:Reading}}</div>'
-                '<hr id="answer">'
+                "afmt": '{{FrontSide}}<hr id="answer">'
                 '<div class="meaning">{{Meaning}}</div>'
-                '<div class="badge">{{PartOfSpeech}} | {{Theme}}</div>'
+                '<div class="badge">{{Romaji}} · {{PartOfSpeech}} | {{Theme}}</div>'
                 '<div class="extra">{{Extra}}</div>',
             },
             {
@@ -109,7 +185,15 @@ def _vocab_model(language: str) -> genanki.Model:
                 "qfmt": '<div class="meaning">{{Meaning}}</div>'
                 '<div class="badge">{{PartOfSpeech}} | {{Theme}}</div>',
                 "afmt": '{{FrontSide}}<hr id="answer">'
-                '<div class="term">{{furigana:Reading}}</div>'
+                '<div class="term">{{Expression}}</div>'
+                '<div class="badge">{{Romaji}}</div>'
+                '<div class="extra">{{Extra}}</div>',
+            },
+            {
+                "name": "FromRomaji",
+                "qfmt": '<div class="meaning">{{Romaji}}</div>',
+                "afmt": '{{FrontSide}}<hr id="answer">'
+                '<div class="term">{{Expression}}</div>'
                 '<div class="extra">{{Extra}}</div>',
             },
         ],
@@ -183,17 +267,37 @@ def _radical_model(language: str) -> genanki.Model:
     )
 
 
+def _kana_model(language: str) -> genanki.Model:
+    return genanki.Model(
+        IDS[language]["model_kana"],
+        f"Kana ({language.upper()})",
+        fields=[
+            {"name": "Character"},
+            {"name": "Romaji"},
+            {"name": "Note"},
+        ],
+        templates=[
+            {
+                "name": "Recognition",
+                "qfmt": '<div class="kanji-big">{{Character}}</div>',
+                "afmt": '{{FrontSide}}<hr id="answer">'
+                '<div class="meaning">{{Romaji}}</div>'
+                '<div class="extra">{{Note}}</div>',
+            },
+            {
+                "name": "Production",
+                "qfmt": '<div class="meaning">{{Romaji}}</div>',
+                "afmt": '{{FrontSide}}<hr id="answer">'
+                '<div class="kanji-big">{{Character}}</div>'
+                '<div class="extra">{{Note}}</div>',
+            },
+        ],
+        css=CSS,
+    )
+
+
 def _esc(value: str) -> str:
     return html.escape(value or "")
-
-
-def _reading(row: dict) -> str:
-    # `Japonais` mirrors whatever script the word is natively written in
-    # (kanji, hiragana or katakana), so it's not a reliable reading when the
-    # word has a Kanji form - `Hiragana` always holds the phonetic reading.
-    if row["Kanji"]:
-        return f"{row['Kanji']}[{row['Hiragana']}]"
-    return row["Japonais"]
 
 
 def _extra(row: dict) -> str:
@@ -231,8 +335,8 @@ def build_vocab_notes(vocab_rows: list[dict], language: str) -> list[genanki.Not
             KeyedNote(
                 model=model,
                 fields=[
-                    _esc(row["Kanji"] or row["Japonais"]),
-                    _esc(_reading(row)),
+                    _esc(row["Japonais"]),
+                    _esc(row["Rômaji"]),
                     _esc(meaning),
                     _esc(part_of_speech),
                     _esc(theme),
@@ -295,13 +399,81 @@ def build_radical_notes(radicals: list[dict], language: str) -> list[genanki.Not
     return notes
 
 
+def build_kana_notes(kana_rows: list[dict], script: str, language: str) -> list[genanki.Note]:
+    """`script` is `"Hiragana"` or `"Katakana"` - the column to read the
+    character from. Rows without a character in that script (e.g. chōonpu,
+    which is katakana-only) are skipped rather than producing an empty card.
+    """
+    model = _kana_model(language)
+    notes = []
+    for row in kana_rows:
+        character = row[script]
+        if not character or character == "(N/A)":
+            continue
+        # Note de prononciation is French-only prose, no English version.
+        note = row["Note de prononciation"] if language == "fr" else ""
+        notes.append(
+            KeyedNote(
+                model=model,
+                fields=[
+                    _esc(character),
+                    _esc(row["Rōmaji"]),
+                    _esc(note),
+                ],
+                guid_key=f"kana-{script}-{language}-{character}",
+                tags=[f"type::{_tag(translate_label(row['Type'], language))}"],
+            )
+        )
+    return notes
+
+
+def _description(kind: str, language: str, count: int) -> str:
+    unit = UNITS[language][kind]
+    lines = [f"{count} {unit} - {GENERATED_ON[language]} {datetime.date.today().isoformat()}."]
+    gap = GAP_NOTES.get((kind, language), "")
+    if gap:
+        lines.append(gap)
+    lines.append(REIMPORT_NOTE[language])
+    return "\n".join(lines)
+
+
 def build_package(
-    vocab_rows: list[dict], kanji_rows: list[dict], radicals: list[dict], language: str
+    vocab_rows: list[dict],
+    kanji_rows: list[dict],
+    radicals: list[dict],
+    kana_rows: list[dict],
+    language: str,
 ) -> genanki.Package:
-    label = language.upper()
-    vocab_deck = genanki.Deck(IDS[language]["deck_vocab"], f"Japanese ({label})::Vocabulary")
-    kanji_deck = genanki.Deck(IDS[language]["deck_kanji"], f"Japanese ({label})::Kanji")
-    radical_deck = genanki.Deck(IDS[language]["deck_radical"], f"Japanese ({label})::Radicals")
+    titles = DECK_TITLES[language]
+    root = titles["root"]
+
+    vocab_deck = genanki.Deck(
+        IDS[language]["deck_vocab"],
+        f"{root}::{titles['vocab']}",
+        description=_description("vocab", language, len(vocab_rows)),
+    )
+    kanji_deck = genanki.Deck(
+        IDS[language]["deck_kanji"],
+        f"{root}::{titles['kanji']}",
+        description=_description("kanji", language, len(kanji_rows)),
+    )
+    radical_deck = genanki.Deck(
+        IDS[language]["deck_radical"],
+        f"{root}::{titles['radical']}",
+        description=_description("radical", language, len(radicals)),
+    )
+    hiragana_notes = build_kana_notes(kana_rows, "Hiragana", language)
+    katakana_notes = build_kana_notes(kana_rows, "Katakana", language)
+    hiragana_deck = genanki.Deck(
+        IDS[language]["deck_hiragana"],
+        f"{root}::{titles['hiragana']}",
+        description=_description("hiragana", language, len(hiragana_notes)),
+    )
+    katakana_deck = genanki.Deck(
+        IDS[language]["deck_katakana"],
+        f"{root}::{titles['katakana']}",
+        description=_description("katakana", language, len(katakana_notes)),
+    )
 
     for note in build_vocab_notes(vocab_rows, language):
         vocab_deck.add_note(note)
@@ -309,5 +481,11 @@ def build_package(
         kanji_deck.add_note(note)
     for note in build_radical_notes(radicals, language):
         radical_deck.add_note(note)
+    for note in hiragana_notes:
+        hiragana_deck.add_note(note)
+    for note in katakana_notes:
+        katakana_deck.add_note(note)
 
-    return genanki.Package([vocab_deck, kanji_deck, radical_deck])
+    return genanki.Package(
+        [vocab_deck, kanji_deck, radical_deck, hiragana_deck, katakana_deck]
+    )

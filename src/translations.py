@@ -1,5 +1,5 @@
 """FR -> EN translations for the small, closed set of categorical values
-(Grammaire, Thème, Alphabet) used to label and tag vocabulary entries.
+(Grammaire, Thème, Alphabet, kana Type) used to label and tag entries.
 
 These don't need a new spreadsheet column: the set of possible values is
 small and stable enough to maintain as a static lookup here, unlike the
@@ -15,17 +15,21 @@ FR_TO_EN = {
     "Alimentation": "Food",
     "Animal": "Animal",
     "Argent": "Money",
+    "Chōonpu": "Chōonpu",
     "Commerce": "Commerce",
     "Communication": "Communication",
     "Compteur": "Counter",
     "Conjonction": "Conjunction",
+    "Dakuten (Son impur)": "Dakuten (Voiced sound)",
     "Description": "Description",
     "Déterminant": "Determiner",
     "Espace": "Space",
     "Expression": "Expression",
     "G1 (vi)": "Group 1 verb (intr.)",
     "G3 (vt)": "Group 3 verb (trans.)",
+    "Gojūon (Base)": "Gojūon (Base)",
     "Grammaire": "Grammar",
+    "Handakuten (Son P)": "Handakuten (P sound)",
     "Hiragana": "Hiragana",
     "Kanji": "Kanji",
     "Katakana": "Katakana",
@@ -43,6 +47,7 @@ FR_TO_EN = {
     "Quantité": "Quantity",
     "Quotidien": "Daily life",
     "Santé": "Health",
+    "Sokuon (Petit tsu)": "Sokuon (Small tsu)",
     "Sport": "Sport",
     "Structure": "Structure",
     "Suffixe": "Suffix",
