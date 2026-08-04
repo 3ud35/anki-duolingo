@@ -14,10 +14,10 @@ reversed-card pattern), packaged into one importable file per language
   kana tab identified by gid in src/schema.py (SHEET_KANA_GID).
 
 Categorical labels (part of speech, theme, kana type) are translated in
-code via src/translations.py. Free-form prose fields with no data in the
-other language (commentary, mnemonics, etymology, radical meanings,
-pronunciation notes) are left blank for whichever language lacks a real
-source column - see main.py's startup report for exactly what's missing.
+code via src/translations.py. Every other free-form prose field is now
+bilingual at the source (EN/FR sibling columns), except the kana tab's
+pronunciation note, which is still French-only - see main.py's startup
+report for exactly what's missing.
 
 Model/deck IDs below are fixed random constants, one set per language:
 never regenerate them, since Anki uses them to recognize "the same"
@@ -35,6 +35,7 @@ match the source data verbatim.
 
 import datetime
 import html
+from collections import defaultdict
 
 import genanki
 
@@ -79,15 +80,6 @@ UNITS = {
 GENERATED_ON = {"en": "Generated on", "fr": "Généré le"}
 
 GAP_NOTES = {
-    ("vocab", "en"): "Extra context (Composition/Commentaire) isn't available in English yet.",
-    ("vocab", "fr"): (
-        "Le sens n'est pas encore disponible en français : MOTS n'a pas de "
-        "colonne de traduction française."
-    ),
-    ("kanji", "en"): "Radical meanings, mnemonic and etymology aren't available in English yet.",
-    ("kanji", "fr"): "",
-    ("radical", "en"): "Meanings aren't available in English yet.",
-    ("radical", "fr"): "",
     ("hiragana", "en"): "Pronunciation notes aren't available in English yet.",
     ("hiragana", "fr"): "",
     ("katakana", "en"): "Pronunciation notes aren't available in English yet.",
@@ -142,6 +134,9 @@ CSS = """
 .badge { font-size: 14px; color: #888; margin-top: 8px; }
 .extra { font-size: 14px; color: #999; margin-top: 10px; }
 .components, .story, .etymology { font-size: 15px; margin-top: 10px; text-align: left; }
+.radical-list { text-align: left; }
+.radical-entry { font-size: 15px; margin-top: 10px; }
+.radical-examples { font-size: 13px; color: #999; margin-top: 2px; }
 """
 
 
@@ -249,18 +244,11 @@ def _radical_model(language: str) -> genanki.Model:
         ],
         templates=[
             {
-                "name": "Recognition",
-                "qfmt": '<div class="kanji-big">{{Radical}}</div>',
+                "name": "Radical",
+                "qfmt": '<div class="kanji-big">{{Radical}}</div>'
+                '<div class="meaning">{{Meaning}}</div>',
                 "afmt": '{{FrontSide}}<hr id="answer">'
-                '<div class="meaning">{{Meaning}}</div>'
-                '<div class="extra">Appears in: {{Kanjis}}</div>',
-            },
-            {
-                "name": "Production",
-                "qfmt": '<div class="meaning">{{Meaning}}</div>',
-                "afmt": '{{FrontSide}}<hr id="answer">'
-                '<div class="kanji-big">{{Radical}}</div>'
-                '<div class="extra">Appears in: {{Kanjis}}</div>',
+                '<div class="radical-list">{{Kanjis}}</div>',
             },
         ],
         css=CSS,
@@ -300,8 +288,9 @@ def _esc(value: str) -> str:
     return html.escape(value or "")
 
 
-def _extra(row: dict) -> str:
-    parts = [row["Composition"], row["Commentaire"]]
+def _extra(row: dict, language: str) -> str:
+    suffix = "EN" if language == "en" else "FR"
+    parts = [row[f"Composition {suffix}"], row[f"Commentaire {suffix}"]]
     return "<br>".join(_esc(p) for p in parts if p and p != "-")
 
 
@@ -315,12 +304,8 @@ def build_vocab_notes(vocab_rows: list[dict], language: str) -> list[genanki.Not
     for row in vocab_rows:
         part_of_speech = translate_label(row["Grammaire"], language)
         theme = translate_label(row["Thème"], language)
-        # `Anglais` is the only translated meaning MOTS has - there's no
-        # French equivalent column yet, so the FR export has no meaning to
-        # show until one is added.
-        meaning = row["Anglais"] if language == "en" else ""
-        # Composition/Commentaire are French-only prose, no English version.
-        extra = _extra(row) if language == "fr" else ""
+        meaning = row["Anglais"] if language == "en" else row["Français"]
+        extra = _extra(row, language)
 
         tags = [
             f"{prefix}::{_tag(value)}"
@@ -353,12 +338,11 @@ def build_kanji_notes(kanji_rows: list[dict], language: str) -> list[genanki.Not
     model = _kanji_model(language)
     notes = []
     for row in kanji_rows:
-        meaning = row["Sens (Français)"] if language == "fr" else row["Sens (Anglais)"]
-        # Sens des Radicaux / Mnémotechnique / Étymologie are French-only
-        # prose, no English version exists yet.
-        radical_meanings = row["Sens des Radicaux"] if language == "fr" else ""
-        mnemonic = row["Mnémotechnique Visuelle"] if language == "fr" else ""
-        etymology = row["Étymologie Historique"] if language == "fr" else ""
+        suffix = "FR" if language == "fr" else "EN"
+        meaning = row[f"Sens {suffix}"]
+        radical_meanings = row[f"Sens Radicaux {suffix}"]
+        mnemonic = row[f"Mnémotechnique {suffix}"]
+        etymology = row[f"Étymologie {suffix}"]
 
         notes.append(
             KeyedNote(
@@ -378,20 +362,58 @@ def build_kanji_notes(kanji_rows: list[dict], language: str) -> list[genanki.Not
     return notes
 
 
-def build_radical_notes(radicals: list[dict], language: str) -> list[genanki.Note]:
+def _vocab_index_by_kanji(vocab_rows: list[dict]) -> dict[str, list[dict]]:
+    """Maps each individual kanji character to the vocab rows whose `Kanji`
+    field contains it, in spreadsheet order. A row is indexed under every
+    distinct character it contains (e.g. "都市" indexes under both 都 and
+    市); non-kanji characters that ride along in a Mélange word's `Kanji`
+    field (okurigana) get indexed too but are harmless, since no radical's
+    kanji ever matches them.
+    """
+    index: dict[str, list[dict]] = defaultdict(list)
+    for row in vocab_rows:
+        for char in dict.fromkeys(row["Kanji"]):  # dedupe, keep first-seen order
+            index[char].append(row)
+    return index
+
+
+def _examples_html(kanji_char: str, vocab_by_kanji: dict, word_key: str, limit: int = 2) -> str:
+    examples = vocab_by_kanji.get(kanji_char, [])[:limit]
+    if not examples:
+        return ""
+    parts = [
+        f"{_esc(ex['Japonais'])} ({_esc(ex[word_key])})" if ex[word_key] else _esc(ex["Japonais"])
+        for ex in examples
+    ]
+    return f'<div class="radical-examples">{", ".join(parts)}</div>'
+
+
+def build_radical_notes(
+    radicals: list[dict], vocab_rows: list[dict], language: str
+) -> list[genanki.Note]:
     model = _radical_model(language)
+    vocab_by_kanji = _vocab_index_by_kanji(vocab_rows)
+    meaning_key = "MeaningFR" if language == "fr" else "MeaningEN"
+    word_key = "Français" if language == "fr" else "Anglais"
+
     notes = []
     for radical in radicals:
-        # Radical meanings come from Sens des Radicaux, French-only - see
-        # build_kanji_notes.
-        meaning = radical["Meaning"] if language == "fr" else ""
+        meaning = radical[meaning_key]
+        blocks = []
+        for k in radical["Kanjis"]:
+            kanji_char = k["Kanji"]
+            kanji_meaning = k[meaning_key]
+            line = f"{_esc(kanji_char)} - {_esc(kanji_meaning)}" if kanji_meaning else _esc(kanji_char)
+            block = f'<div class="radical-entry">{line}</div>'
+            block += _examples_html(kanji_char, vocab_by_kanji, word_key)
+            blocks.append(block)
         notes.append(
             KeyedNote(
                 model=model,
                 fields=[
                     _esc(radical["Radical"]),
                     _esc(meaning),
-                    _esc(", ".join(radical["Kanjis"])),
+                    "".join(blocks),
                 ],
                 guid_key=f"radical-{language}-{radical['Radical']}",
             )
@@ -479,7 +501,7 @@ def build_package(
         vocab_deck.add_note(note)
     for note in build_kanji_notes(kanji_rows, language):
         kanji_deck.add_note(note)
-    for note in build_radical_notes(radicals, language):
+    for note in build_radical_notes(radicals, vocab_rows, language):
         radical_deck.add_note(note)
     for note in hiragana_notes:
         hiragana_deck.add_note(note)

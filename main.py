@@ -11,17 +11,10 @@ OUTPUT_DIR = Path("output")
 FILE_SLUGS = {"en": "japanese_duolingo", "fr": "japonais_duolingo"}
 
 MISSING_COLUMNS_FOR_FULL_ENGLISH = [
-    "MOTS: Composition (English)",
-    "MOTS: Commentaire (English)",
-    "Analyse clés kanjis: Sens des Radicaux (English)",
-    "Analyse clés kanjis: Mnémotechnique Visuelle (English)",
-    "Analyse clés kanjis: Étymologie Historique (English)",
     "Kana tab: Note de prononciation (English)",
 ]
 
-MISSING_COLUMNS_FOR_FULL_FRENCH = [
-    "MOTS: Sens (Français) - blocks the whole Vocabulary meaning field in French",
-]
+MISSING_COLUMNS_FOR_FULL_FRENCH: list[str] = []
 
 
 def main() -> None:
@@ -38,7 +31,8 @@ def main() -> None:
     for item in unresolved:
         print(
             f"  [!] {item['Kanji']}: radical {item['Radical']!r} has no "
-            "meaning anywhere in the data - needs fixing in the spreadsheet."
+            f"{item['Language']} meaning anywhere in the data - needs "
+            "fixing in the spreadsheet."
         )
 
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -53,13 +47,15 @@ def main() -> None:
         )
         print(f"Wrote {output_path}")
 
-    print("\nColumns needed in the spreadsheet for a complete English export:")
-    for column in MISSING_COLUMNS_FOR_FULL_ENGLISH:
-        print(f"  - {column}")
+    if MISSING_COLUMNS_FOR_FULL_ENGLISH:
+        print("\nColumns needed in the spreadsheet for a complete English export:")
+        for column in MISSING_COLUMNS_FOR_FULL_ENGLISH:
+            print(f"  - {column}")
 
-    print("\nColumns needed in the spreadsheet for a complete French export:")
-    for column in MISSING_COLUMNS_FOR_FULL_FRENCH:
-        print(f"  - {column}")
+    if MISSING_COLUMNS_FOR_FULL_FRENCH:
+        print("\nColumns needed in the spreadsheet for a complete French export:")
+        for column in MISSING_COLUMNS_FOR_FULL_FRENCH:
+            print(f"  - {column}")
 
 
 if __name__ == "__main__":

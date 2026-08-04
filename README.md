@@ -26,19 +26,22 @@ The spreadsheet must be shared as read-only ("Anyone with the link" → Viewer).
 |---|---|
 | Ordre | Entry number |
 | Anglais | English translation |
+| Français | French translation |
 | Rômaji | Romanization |
 | Japonais | Japanese writing, exactly as taught by Duolingo (kana or kanji depending on the word) |
 | Alphabet | Script used (Hiragana, Katakana, Kanji, Mixed) |
-| Composition | Structure/etymology notes |
+| Composition EN | Structure/etymology notes, in English |
+| Composition FR | Structure/etymology notes, in French |
 | Thème | Semantic category |
 | Grammaire | Part of speech |
 | Propriété | Usage sub-category |
-| Commentaire | Contextual explanation |
+| Commentaire EN | Contextual explanation, in English |
+| Commentaire FR | Contextual explanation, in French |
 | Hiragana | Hiragana variant |
 | Katakana | Katakana variant |
 | Kanji | Kanji variant |
 
-The `Hiragana`/`Katakana`/`Kanji` variant columns are **not used** to build vocabulary cards - only `Japonais` is, since that's the exact form Duolingo actually teaches. Those three columns can hold a different script than what was learned (e.g. a kanji form for a word only ever seen in kana), which would be misleading to show instead.
+The `Hiragana`/`Katakana`/`Kanji` variant columns are **not used** to build vocabulary cards - only `Japonais` is, since that's the exact form Duolingo actually teaches. Those three columns can hold a different script than what was learned (e.g. a kanji form for a word only ever seen in kana), which would be misleading to show instead. That said, the `Kanji` column is used to cross-reference vocabulary examples on the Radicals deck (see below) - it's read, just never shown as a substitute for `Japonais`.
 
 ### `Analyse clés kanjis` tab
 
@@ -46,12 +49,15 @@ The `Hiragana`/`Katakana`/`Kanji` variant columns are **not used** to build voca
 |---|---|
 | Kanji | Character |
 | Romaji | Romanization |
-| Sens (Anglais) | Meaning in English |
-| Sens (Français) | Meaning in French |
+| Sens EN | Meaning in English |
+| Sens FR | Meaning in French |
 | Radicaux | Radicals making up the kanji |
-| Sens des Radicaux | Meaning of those radicals |
-| Mnémotechnique Visuelle | Memory aid |
-| Étymologie Historique | Character origin |
+| Sens Radicaux EN | Meaning of those radicals, in English |
+| Sens Radicaux FR | Meaning of those radicals, in French |
+| Mnémotechnique EN | Memory aid, in English |
+| Mnémotechnique FR | Memory aid, in French |
+| Étymologie EN | Character origin, in English |
+| Étymologie FR | Character origin, in French |
 
 ### Kana tab (`SHEET_KANA_GID`)
 
@@ -85,10 +91,10 @@ Each file bundles 5 decks under a `Japanese Duolingo` / `Japonais Duolingo` pare
 
 - **Vocabulary** - from `MOTS`. Recognition, Production, and a third "FromRomaji" card (Romaji → word), each note has 3 cards.
 - **Kanji** - from `Analyse clés kanjis`, radical breakdown shown as context on the card.
-- **Radicals** - every radical isolated and deduplicated from the kanji tab, with the list of kanji it appears in.
+- **Radicals** - every radical isolated and deduplicated from the kanji tab. One card per radical: front shows the radical and its meaning, back lists every kanji that uses it (with that kanji's own meaning) plus, for each one, up to two real vocabulary words from `MOTS` that contain it (with their meaning) - concrete usage examples rather than a bare list of characters.
 - **Hiragana** / **Katakana** - two separate decks from the kana tab (one row can produce a note in both, since it lists both scripts for the same sound).
 
-Every deck has a Recognition and a Production card per note (Vocabulary has the extra FromRomaji one), and a description (visible in Anki via the deck's "Description" button) stating its entry count, generation date, and any known data gap for that language.
+Vocabulary, Kanji, Hiragana and Katakana each have a Recognition and a Production card per note (Vocabulary has the extra FromRomaji one); Radicals has a single card per note (front/back as described above). Every deck has a description (visible in Anki via the deck's "Description" button) stating its entry count, generation date, and any known data gap for that language.
 
 ### Updating
 
@@ -114,10 +120,6 @@ Sources: [Anki Manual - Contributing](https://docs.ankiweb.net/contrib.html), [A
 
 ### Known data gaps
 
-Some fields only exist in French in the source spreadsheet, so the English export leaves them blank until the corresponding column is added upstream:
+`MOTS` and `Analyse clés kanjis` are now fully bilingual (every prose field has an EN and FR sibling column). Categorical fields (part of speech, theme, alphabet, kana type) don't need a spreadsheet column at all - they're translated in code (`src/translations.py`) since the set of possible values is small and fixed.
 
-- `MOTS`: no `Composition`/`Commentaire` in English.
-- `Analyse clés kanjis`: no `Sens des Radicaux`, `Mnémotechnique Visuelle`, or `Étymologie Historique` in English.
-- Kana tab: no `Note de prononciation` in English.
-
-Conversely, the French export's Vocabulary `Meaning` field is empty because `MOTS` has no `Sens (Français)` column (only `Anglais`). Categorical fields (part of speech, theme, alphabet, kana type) don't have this problem - they're translated in code (`src/translations.py`) since the set of possible values is small and fixed.
+The one remaining gap: the kana tab's `Note de prononciation` only exists in French, so the English Hiragana/Katakana decks leave that field blank until an English column is added upstream.
