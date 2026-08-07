@@ -11,7 +11,6 @@ env/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
-output/
 
 # Environment / secrets
 .env
