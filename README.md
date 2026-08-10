@@ -41,7 +41,7 @@ The spreadsheet must be shared as read-only ("Anyone with the link" → Viewer).
 | Katakana | Katakana variant |
 | Kanji | Kanji variant |
 
-The `Hiragana`/`Katakana`/`Kanji` variant columns are **not used** to build vocabulary cards - only `Japonais` is, since that's the exact form Duolingo actually teaches. Those three columns can hold a different script than what was learned (e.g. a kanji form for a word only ever seen in kana), which would be misleading to show instead. That said, the `Kanji` column is used to cross-reference vocabulary examples on the Radicals deck (see below) - it's read, just never shown as a substitute for `Japonais`.
+The `Hiragana`/`Katakana`/`Kanji` variant columns are **never read** - `Japonais` is the sole source of truth for what a word is written as, including for cross-referencing which vocabulary words contain a given kanji (used by the Radicals and Kanji Words decks, see below). Those three columns can hold a different script than what was learned (e.g. a kanji form for a word only ever seen in kana), which would be misleading to match against.
 
 ### `Analyse clés kanjis` tab
 
@@ -87,14 +87,15 @@ output/japanese_duolingo.apkg
 output/japonais_duolingo.apkg
 ```
 
-Each file bundles 5 decks under a `Japanese Duolingo` / `Japonais Duolingo` parent deck:
+Each file bundles 6 decks under a `Japanese Duolingo` / `Japonais Duolingo` parent deck:
 
 - **Vocabulary** - from `MOTS`. Recognition, Production, and a third "FromRomaji" card (Romaji → word), each note has 3 cards.
 - **Kanji** - from `Analyse clés kanjis`, radical breakdown shown as context on the card.
-- **Radicals** - every radical isolated and deduplicated from the kanji tab. One card per radical: front shows the radical and its meaning, back lists every kanji that uses it (with that kanji's own meaning) plus, for each one, up to two real vocabulary words from `MOTS` that contain it (with their meaning) - concrete usage examples rather than a bare list of characters.
+- **Kanji Words** - one note per kanji that appears in at least one `MOTS` word (kanji with zero matches are skipped). Front shows the kanji plus up to 5 vocabulary words containing it (each with romaji and meaning, in spreadsheet order), back reveals the kanji's own meaning.
+- **Radicals** - every radical isolated and deduplicated from the kanji tab. One card per radical: front shows the radical and its meaning, back lists every kanji that uses it (with that kanji's own meaning) plus, for each one, up to five real vocabulary words from `MOTS` that contain it (with their meaning) - concrete usage examples rather than a bare list of characters.
 - **Hiragana** / **Katakana** - two separate decks from the kana tab (one row can produce a note in both, since it lists both scripts for the same sound).
 
-Vocabulary, Kanji, Hiragana and Katakana each have a Recognition and a Production card per note (Vocabulary has the extra FromRomaji one); Radicals has a single card per note (front/back as described above). Every deck has a description (visible in Anki via the deck's "Description" button) stating its entry count, generation date, and any known data gap for that language.
+Vocabulary, Kanji, Hiragana and Katakana each have a Recognition and a Production card per note (Vocabulary has the extra FromRomaji one); Radicals and Kanji Words each have a single card per note (front/back as described above). Every deck has a description (visible in Anki via the deck's "Description" button) stating its entry count, generation date, and any known data gap for that language.
 
 ### Updating
 

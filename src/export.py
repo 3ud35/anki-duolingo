@@ -7,11 +7,21 @@ reversed-card pattern), packaged into one importable file per language
 - Vocabulary: from the `MOTS` tab.
 - Kanji: from the `Analyse clés kanjis` tab, radical breakdown included as
   context on the card itself.
+- Kanji Words: a separate deck/note type, one note per kanji with at least
+  one matching `MOTS` word - front shows the kanji plus up to 5 words
+  containing it, back reveals the kanji's meaning. Kept as its own deck
+  (not a third template on the Kanji note type) so it shows up natively in
+  Anki's deck list instead of being hidden behind a Browse filter.
 - Radical: from the radicals isolated by src/radicals.py, as a standalone
   reference deck on top of that (cheap to keep since the data already
   exists in this shape - safe to ignore/suspend in Anki if unwanted).
 - Hiragana / Katakana: two separate decks sharing one note type, from the
   kana tab identified by gid in src/schema.py (SHEET_KANA_GID).
+
+Kanji Words and Radicals both cross-reference `MOTS` by scanning each row's
+`Japonais` field for individual kanji characters (`_vocab_index_by_kanji`) -
+the `Hiragana`/`Katakana`/`Kanji` columns are never read, since `Japonais`
+is the sole source of truth for what a word is written as.
 
 Categorical labels (part of speech, theme, kana type) are translated in
 code via src/translations.py. Every other free-form prose field is now
@@ -46,6 +56,7 @@ DECK_TITLES = {
         "root": "Japanese Duolingo",
         "vocab": "Vocabulary",
         "kanji": "Kanji",
+        "kanji_words": "Kanji Words",
         "radical": "Radicals",
         "hiragana": "Hiragana",
         "katakana": "Katakana",
@@ -54,6 +65,7 @@ DECK_TITLES = {
         "root": "Japonais Duolingo",
         "vocab": "Vocabulaire",
         "kanji": "Kanji",
+        "kanji_words": "Kanji en contexte",
         "radical": "Radicaux",
         "hiragana": "Hiragana",
         "katakana": "Katakana",
@@ -64,6 +76,7 @@ UNITS = {
     "en": {
         "vocab": "words",
         "kanji": "kanji",
+        "kanji_words": "kanji",
         "radical": "radicals",
         "hiragana": "characters",
         "katakana": "characters",
@@ -71,6 +84,7 @@ UNITS = {
     "fr": {
         "vocab": "mots",
         "kanji": "kanjis",
+        "kanji_words": "kanjis",
         "radical": "radicaux",
         "hiragana": "caractères",
         "katakana": "caractères",
@@ -104,10 +118,12 @@ IDS = {
     "en": {
         "model_vocab": 2076060013,
         "model_kanji": 2134279807,
+        "model_kanji_words": 1767287174,
         "model_radical": 1814570334,
         "model_kana": 1410245015,
         "deck_vocab": 1683549848,
         "deck_kanji": 1593559119,
+        "deck_kanji_words": 1178246352,
         "deck_radical": 1538186432,
         "deck_hiragana": 1562341696,
         "deck_katakana": 1473306337,
@@ -115,10 +131,12 @@ IDS = {
     "fr": {
         "model_vocab": 1479258928,
         "model_kanji": 2018506066,
+        "model_kanji_words": 1835993873,
         "model_radical": 1635955490,
         "model_kana": 1693701752,
         "deck_vocab": 1406830556,
         "deck_kanji": 1511132156,
+        "deck_kanji_words": 1083476135,
         "deck_radical": 1456001352,
         "deck_hiragana": 1263595306,
         "deck_katakana": 1651686562,
@@ -137,6 +155,8 @@ CSS = """
 .radical-list { text-align: left; }
 .radical-entry { font-size: 15px; margin-top: 10px; }
 .radical-examples { font-size: 13px; color: #999; margin-top: 2px; }
+.word-list { text-align: left; margin-top: 15px; }
+.word-entry { font-size: 16px; margin-top: 6px; }
 """
 
 
@@ -227,6 +247,30 @@ def _kanji_model(language: str) -> genanki.Model:
                 "afmt": '{{FrontSide}}<hr id="answer">'
                 '<div class="kanji-big">{{Kanji}}</div>'
                 '<div class="story">{{Mnemonic}}</div>',
+            },
+        ],
+        css=CSS,
+    )
+
+
+def _kanji_words_model(language: str) -> genanki.Model:
+    return genanki.Model(
+        IDS[language]["model_kanji_words"],
+        f"Kanji Words ({language.upper()})",
+        fields=[
+            {"name": "Kanji"},
+            {"name": "Romaji"},
+            {"name": "Meaning"},
+            {"name": "Words"},
+        ],
+        templates=[
+            {
+                "name": "WordsContaining",
+                "qfmt": '<div class="kanji-big">{{Kanji}}</div>'
+                '<div class="word-list">{{Words}}</div>',
+                "afmt": '{{FrontSide}}<hr id="answer">'
+                '<div class="meaning">{{Meaning}}</div>'
+                '<div class="badge">{{Romaji}}</div>',
             },
         ],
         css=CSS,
@@ -362,22 +406,65 @@ def build_kanji_notes(kanji_rows: list[dict], language: str) -> list[genanki.Not
     return notes
 
 
+def _words_html(kanji_char: str, vocab_by_kanji: dict, word_key: str, limit: int = 5) -> str:
+    examples = vocab_by_kanji.get(kanji_char, [])[:limit]
+    lines = []
+    for ex in examples:
+        entry = f"{_esc(ex['Japonais'])} ({_esc(ex['Rômaji'])})"
+        if ex[word_key]:
+            entry += f" - {_esc(ex[word_key])}"
+        lines.append(f'<div class="word-entry">{entry}</div>')
+    return "".join(lines)
+
+
+def build_kanji_words_notes(
+    kanji_rows: list[dict], vocab_rows: list[dict], language: str
+) -> list[genanki.Note]:
+    """One note per kanji that has at least one matching vocab word - kanji
+    with zero matches are skipped rather than producing an empty word list.
+    """
+    model = _kanji_words_model(language)
+    vocab_by_kanji = _vocab_index_by_kanji(vocab_rows)
+    suffix = "FR" if language == "fr" else "EN"
+    word_key = "Français" if language == "fr" else "Anglais"
+
+    notes = []
+    for row in kanji_rows:
+        words = _words_html(row["Kanji"], vocab_by_kanji, word_key)
+        if not words:
+            continue
+        notes.append(
+            KeyedNote(
+                model=model,
+                fields=[
+                    _esc(row["Kanji"]),
+                    _esc(row["Romaji"]),
+                    _esc(row[f"Sens {suffix}"]),
+                    words,
+                ],
+                guid_key=f"kanji-words-{language}-{row['Kanji']}",
+            )
+        )
+    return notes
+
+
 def _vocab_index_by_kanji(vocab_rows: list[dict]) -> dict[str, list[dict]]:
-    """Maps each individual kanji character to the vocab rows whose `Kanji`
+    """Maps each individual kanji character to the vocab rows whose `Japonais`
     field contains it, in spreadsheet order. A row is indexed under every
     distinct character it contains (e.g. "都市" indexes under both 都 and
-    市); non-kanji characters that ride along in a Mélange word's `Kanji`
-    field (okurigana) get indexed too but are harmless, since no radical's
-    kanji ever matches them.
+    市); non-kanji characters that ride along (okurigana, kana) get indexed
+    too but are harmless, since no radical's kanji ever matches them. Only
+    `Japonais` is used as the source of truth for what a word is written as -
+    the `Hiragana` / `Katakana` / `Kanji` columns are never read.
     """
     index: dict[str, list[dict]] = defaultdict(list)
     for row in vocab_rows:
-        for char in dict.fromkeys(row["Kanji"]):  # dedupe, keep first-seen order
+        for char in dict.fromkeys(row["Japonais"]):  # dedupe, keep first-seen order
             index[char].append(row)
     return index
 
 
-def _examples_html(kanji_char: str, vocab_by_kanji: dict, word_key: str, limit: int = 2) -> str:
+def _examples_html(kanji_char: str, vocab_by_kanji: dict, word_key: str, limit: int = 5) -> str:
     examples = vocab_by_kanji.get(kanji_char, [])[:limit]
     if not examples:
         return ""
@@ -479,6 +566,12 @@ def build_package(
         f"{root}::{titles['kanji']}",
         description=_description("kanji", language, len(kanji_rows)),
     )
+    kanji_words_notes = build_kanji_words_notes(kanji_rows, vocab_rows, language)
+    kanji_words_deck = genanki.Deck(
+        IDS[language]["deck_kanji_words"],
+        f"{root}::{titles['kanji_words']}",
+        description=_description("kanji_words", language, len(kanji_words_notes)),
+    )
     radical_deck = genanki.Deck(
         IDS[language]["deck_radical"],
         f"{root}::{titles['radical']}",
@@ -501,6 +594,8 @@ def build_package(
         vocab_deck.add_note(note)
     for note in build_kanji_notes(kanji_rows, language):
         kanji_deck.add_note(note)
+    for note in kanji_words_notes:
+        kanji_words_deck.add_note(note)
     for note in build_radical_notes(radicals, vocab_rows, language):
         radical_deck.add_note(note)
     for note in hiragana_notes:
@@ -509,5 +604,5 @@ def build_package(
         katakana_deck.add_note(note)
 
     return genanki.Package(
-        [vocab_deck, kanji_deck, radical_deck, hiragana_deck, katakana_deck]
+        [vocab_deck, kanji_deck, kanji_words_deck, radical_deck, hiragana_deck, katakana_deck]
     )
