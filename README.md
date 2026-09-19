@@ -80,7 +80,7 @@ If the spreadsheet's structure changes upstream, the script fails explicitly wit
 python main.py
 ```
 
-This produces two `.apkg` files in `output/` (gitignored), one per language, with a fixed name that gets overwritten on every run - the filename plays no part in how Anki matches cards on import, so there's no reason to keep old exports around or to make the name unique per run:
+This produces two `.apkg` files in `output/` (tracked in git, so a fresh clone already contains the last generated version), one per language, with a fixed name that gets overwritten on every run - the filename plays no part in how Anki matches cards on import, so there's no reason to keep old exports around or to make the name unique per run:
 
 ```
 output/japanese_duolingo.apkg
